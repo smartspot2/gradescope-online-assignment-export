@@ -1,0 +1,12 @@
+.env
+venv/
+*.pyc
+
+# ignore all created pdf files
+**/*.pdf
+# ignore all json files (likely course specific or for cookies)
+**/*.json
+
+# also ignore defaults for pdfs and json files
+pdf/
+cookies.json
