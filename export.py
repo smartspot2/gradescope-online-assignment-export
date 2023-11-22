@@ -26,7 +26,7 @@ from api.client import BASE_URL, GradescopeWebDriver
 
 CONSOLE = Console(highlight=False)
 CSS_UPDATE = """
-document.body.setHTML(document.getElementsByClassName("onlineAssignment")[0].parentElement.innerHTML);
+document.body.innerHTML = document.getElementsByClassName("onlineAssignment")[0].parentElement.innerHTML;
 for (const link of document.head.getElementsByTagName("link")) {link.removeAttribute("media");}
 """.strip()
 
