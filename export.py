@@ -4,6 +4,7 @@ Export Gradescope online assignments to a PDF file.
 
 import os
 import re
+from typing import Optional, TypedDict
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -14,7 +15,7 @@ from rich.progress import (
     Column,
     Progress,
     SpinnerColumn,
-    Task,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeRemainingColumn,
@@ -29,6 +30,21 @@ CSS_UPDATE = """
 document.body.innerHTML = document.getElementsByClassName("onlineAssignment")[0].parentElement.innerHTML;
 for (const link of document.head.getElementsByTagName("link")) {link.removeAttribute("media");}
 """.strip()
+QUESTION_ONLY_CSS_UPDATE = """
+// remove feedback
+for (const feedback of Array.of(...document.getElementsByClassName("question--feedbackContainer"))) {feedback.remove();}
+// remove selected options
+for (const inp of document.getElementsByTagName("input")) {inp.checked = false; inp.disabled = false;}
+// remove fill in the blank answers
+for (const text of document.getElementsByClassName("form--textInput")) {text.innerHTML = "";}
+""".strip()
+
+
+class AssignmentType(TypedDict):
+    """Type for specifying assignments"""
+
+    url: str
+    name: str
 
 
 def custom_progress_context() -> Progress:
@@ -64,23 +80,27 @@ def is_online_assignment(content: str):
 def export_current_page(
     driver: GradescopeWebDriver,
     folder: str,
-    assignment: {"url": str, "name": str},
-    progress: Progress = None,
-    task: Task = None,
+    assignment: AssignmentType,
+    no_solutions: bool = False,
+    progress: Optional[Progress] = None,
+    task: Optional[TaskID] = None,
 ):
     """
     Export the current page to a PDF.
     """
-    update_progress = progress is not None and task is not None
     if is_online_assignment(driver.get_content()):
         # update CSS
-        if update_progress:
+        if progress is not None and task is not None:
             progress.update(task, description="Updating page CSS")
+
         driver.execute_script(CSS_UPDATE)
+        if no_solutions:
+            # remove all solutions as well
+            driver.execute_script(QUESTION_ONLY_CSS_UPDATE)
         pdf_file = os.path.join(folder, assignment["name"] + ".pdf")
 
         # save file
-        if update_progress:
+        if progress is not None and task is not None:
             progress.update(
                 task,
                 description=f"Printing to [green]{pdf_file}[/green]",
@@ -89,7 +109,9 @@ def export_current_page(
         CONSOLE.print(f"Saved to [green]{pdf_file}[/green]")
 
 
-def crawl_assignments(driver: GradescopeWebDriver, folder: str):
+def crawl_assignments(
+    driver: GradescopeWebDriver, folder: str, no_solutions: bool = False
+):
     """
     Crawl through all assignments in a gradescope course,
     checking whether the assignment is an online assignment, and exporting it to a PDF.
@@ -120,7 +142,9 @@ def crawl_assignments(driver: GradescopeWebDriver, folder: str):
 
     assignments_soup = BeautifulSoup(content, "html.parser")
     links = assignments_soup.select("div.table--primaryLink a")
-    assignments = [{"url": link["href"], "name": link.get_text()} for link in links]
+    assignments: list[AssignmentType] = [
+        {"url": link["href"], "name": link.get_text()} for link in links
+    ]
     progress_context = custom_progress_context()
     with progress_context as progress:
         task = progress.add_task("Crawling assignments", total=len(assignments))
@@ -140,20 +164,29 @@ def crawl_assignments(driver: GradescopeWebDriver, folder: str):
 
             driver.visit(outline_url)
             # export the page
-            export_current_page(driver, folder, assignment, progress, assignment_task)
+            export_current_page(
+                driver,
+                folder,
+                no_solutions=no_solutions,
+                assignment=assignment,
+                progress=progress,
+                task=assignment_task,
+            )
 
             # done with the task, remove it
             progress.remove_task(assignment_task)
 
 
-def main(export_all=False, folder="pdf", cookie_file="cookies.json"):
+def main(
+    export_all=False, folder="pdf", cookie_file="cookies.json", no_solutions=False
+):
     """
     Main method. Calls various other functions depending on the arguments to the export script.
     """
     driver = GradescopeWebDriver(cookie_file=cookie_file)
 
     if export_all:
-        crawl_assignments(driver, folder=folder)
+        crawl_assignments(driver, folder=folder, no_solutions=no_solutions)
     else:
         while True:
             url = Prompt.ask("Gradescope online assignment URL")
@@ -170,11 +203,14 @@ def main(export_all=False, folder="pdf", cookie_file="cookies.json"):
             )
         status.update("Updating page CSS")
         driver.execute_script(CSS_UPDATE)
+        if no_solutions:
+            # remove all solutions as well
+            driver.execute_script(QUESTION_ONLY_CSS_UPDATE)
         status.stop()
 
         input_pdf_file = Prompt.ask("Output PDF filename", console=CONSOLE)
-        if os.path.splitext(input_pdf_file)[1] != '.pdf':
-            input_pdf_file += '.pdf'
+        if os.path.splitext(input_pdf_file)[1] != ".pdf":
+            input_pdf_file += ".pdf"
 
         pdf_file = os.path.join(folder, input_pdf_file)
         status.update(status=f"Printing to [green]{pdf_file}[/green]")
@@ -194,6 +230,11 @@ if __name__ == "__main__":
         help="Crawl course assignment page to print all online assignments",
     )
     parser.add_argument(
+        "--no-solutions",
+        action="store_true",
+        help="Remove all explanations and answers from the page before exporting",
+    )
+    parser.add_argument(
         "--folder", action="store", default="pdf", help="Output folder for pdf files"
     )
     parser.add_argument(
@@ -204,4 +245,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     assert os.path.isdir(args.folder), "Invalid output folder"
-    main(export_all=args.all, folder=args.folder, cookie_file=args.cookies)
+    main(
+        export_all=args.all,
+        folder=args.folder,
+        cookie_file=args.cookies,
+        no_solutions=args.no_solutions,
+    )
