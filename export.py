@@ -29,6 +29,8 @@ CONSOLE = Console(highlight=False)
 CSS_UPDATE = """
 document.body.innerHTML = document.getElementsByClassName("onlineAssignment")[0].parentElement.innerHTML;
 for (const link of document.head.getElementsByTagName("link")) {link.removeAttribute("media");}
+// remove messages
+for (const msg of document.getElementsByClassName("msg")) {msg.remove();}
 """.strip()
 QUESTION_ONLY_CSS_UPDATE = """
 // remove feedback
